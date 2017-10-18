@@ -1,0 +1,11 @@
+[package]
+name = "brownhttpd"
+version = "0.1.0"
+authors = ["Tronje Krabbe <hi@tron.je>"]
+description = "A little http server written for fun (and for serving files)"
+
+[dependencies]
+daemonize = "0.2"
+clap = "2"
+tiny_http = "0.5"
+walkdir = "1"
