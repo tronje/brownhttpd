@@ -121,7 +121,7 @@ fn run(port: u32, daemonize: bool, threads: usize) -> Result<(), String> {
 
             let guard = thread::spawn(move || {
                 for request in server.incoming_requests() {
-                    handle_request(rq).unwrap();
+                    handle_request(request).unwrap();
                 }
             });
 
