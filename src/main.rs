@@ -71,37 +71,42 @@ fn main() {
         },
     };
 
-    if matches.is_present("PATH") {
-        let path = Path::new(matches.value_of("PATH").unwrap());
-        match env::set_current_dir(&path) {
-            Ok(_) => println!("Serving directory '{}'", path.display()),
-            Err(_) => {
-                println!("Could not change root to '{}'!", path.display());
-                process::exit(1);
-            },
-        };
-    } else {
-        let dir = env::current_dir()
-            .expect("Couldn't read curent directory!");
-        println!("Serving directory '{}'", dir.display());
-    }
+    let dir = env::current_dir().expect("Couldn't read curent directory!");
+    let path = {
+        if matches.is_present("PATH") {
+            Path::new(matches.value_of("PATH").unwrap())
+        } else {
+            Path::new(dir.to_str().unwrap())
+        }
+    };
 
-    match run(port, daemon, threads) {
+    match run(path, port, daemon, threads) {
         Ok(_) => process::exit(0),
         Err(e) => {
-            println!("{:?}", e);
+            println!("{}", e);
             process::exit(1);
         },
     }
 }
 
 
-fn run(port: u32, daemonize: bool, threads: usize) -> Result<(), String> {
+fn run(path: &Path, port: u32, daemonize: bool, threads: usize)
+    -> Result<(), String>
+{
     if daemonize {
         println!("Forking to background...");
         let status = Daemonize::new().start();
         if status.is_err() {
             return Err(format!("Daemonizing failed! {:?}", status));
+        }
+    }
+
+    match env::set_current_dir(path) {
+        Ok(_) => println!("Serving directory '{}'", path.display()),
+        Err(_) => {
+            return Err(
+                format!("Could not change root to '{}'!", path.display())
+                );
         }
     }
 
