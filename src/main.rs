@@ -1,12 +1,16 @@
 extern crate daemonize;
 extern crate clap;
+extern crate libc;
 extern crate time;
 extern crate tiny_http;
 
 
 use daemonize::Daemonize;
+
 use clap::{App, Arg};
+
 use std::env;
+use std::ffi::CString;
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
@@ -14,6 +18,7 @@ use std::process;
 use std::str;
 use std::sync::Arc;
 use std::thread;
+
 use tiny_http::{Header, Request, Response, Server};
 
 
@@ -29,9 +34,13 @@ fn main() {
         .arg(Arg::with_name("port")
              .short("p")
              .long("port")
+             .takes_value(true)
              .value_name("PORT")
-             .help("Set the port to listen on, defaults to 7878.")
-             .takes_value(true))
+             .help("Set the port to listen on, defaults to 7878."))
+        .arg(Arg::with_name("chroot")
+              .long("chroot")
+              .takes_value(false)
+              .help("Chroot to supplied directory for added security."))
         .arg(Arg::with_name("daemon")
              .short("d")
              .long("daemon")
@@ -80,7 +89,9 @@ fn main() {
         }
     };
 
-    match run(path, port, daemon, threads) {
+    let chroot = matches.is_present("chroot");
+
+    match run(path, port, chroot, daemon, threads) {
         Ok(_) => process::exit(0),
         Err(e) => {
             println!("{}", e);
@@ -90,7 +101,7 @@ fn main() {
 }
 
 
-fn run(path: &Path, port: u32, daemonize: bool, threads: usize)
+fn run(path: &Path, port: u32, chroot: bool, daemonize: bool, threads: usize)
     -> Result<(), String>
 {
     if daemonize {
@@ -102,13 +113,31 @@ fn run(path: &Path, port: u32, daemonize: bool, threads: usize)
     }
 
     match env::set_current_dir(path) {
-        Ok(_) => println!("Serving directory '{}'", path.display()),
+        Ok(_) => {}, 
         Err(_) => {
             return Err(
                 format!("Could not change root to '{}'!", path.display())
                 );
         }
     }
+
+    if chroot {
+        let c_path = CString::new(path.to_str().unwrap())
+            .expect("Constructing chroot path failed!");
+        let c_path_ptr = c_path.as_ptr();
+
+        let chroot_status = unsafe {
+            libc::chroot(c_path_ptr)
+        };
+
+        if chroot_status != 0 {
+            return Err(format!("Chrooting failed with code {}!", chroot_status));
+        } else {
+            println!("Chrooted to '{}'", path.display());
+        }
+    }
+
+    println!("Serving directory '{}'", path.display());
 
     let conf = format!("0.0.0.0:{}", port);
     let server = match Server::http(&conf) {
