@@ -13,13 +13,15 @@ use std::env;
 use std::ffi::CString;
 use std::fs::{self, File};
 use std::io;
+use std::net::{Ipv6Addr, SocketAddrV6};
 use std::path::Path;
 use std::process;
 use std::str;
 use std::sync::Arc;
 use std::thread;
 
-use tiny_http::{Header, Request, Response, Server};
+use tiny_http::{Header, Request, Response, Server, StatusCode};
+
 
 
 fn main() {
@@ -37,6 +39,10 @@ fn main() {
              .takes_value(true)
              .value_name("PORT")
              .help("Set the port to listen on, defaults to 7878."))
+        .arg(Arg::with_name("ipv6")
+             .long("ipv6")
+             .takes_value(false)
+             .help("Use IPv6 address"))
         .arg(Arg::with_name("chroot")
               .long("chroot")
               .takes_value(false)
@@ -46,6 +52,13 @@ fn main() {
              .long("daemon")
              .takes_value(false)
              .help("Detach from terminal and run in background."))
+        .arg(Arg::with_name("index")
+             .short("i")
+             .long("index")
+             .takes_value(true)
+             .value_name("file")
+             .help("Default file to serve when a directory is requested, \
+                   defaults to 'index.html'"))
         .arg(Arg::with_name("threads")
              .short("t")
              .long("threads")
@@ -66,6 +79,8 @@ fn main() {
             process::exit(1);
         },
     };
+
+    let ipv6 = matches.is_present("ipv6");
 
     let daemon = matches.is_present("daemon");
 
@@ -91,7 +106,7 @@ fn main() {
 
     let chroot = matches.is_present("chroot");
 
-    match run(path, port, chroot, daemon, threads) {
+    match run(path, port, ipv6, chroot, daemon, threads) {
         Ok(_) => process::exit(0),
         Err(e) => {
             println!("{}", e);
@@ -101,7 +116,7 @@ fn main() {
 }
 
 
-fn run(path: &Path, port: u32, chroot: bool, daemonize: bool, threads: usize)
+fn run(path: &Path, port: u32, ipv6: bool, chroot: bool, daemonize: bool, threads: usize)
     -> Result<(), String>
 {
     if daemonize {
@@ -139,15 +154,37 @@ fn run(path: &Path, port: u32, chroot: bool, daemonize: bool, threads: usize)
 
     println!("Serving directory '{}'", path.display());
 
-    let conf = format!("0.0.0.0:{}", port);
-    let server = match Server::http(&conf) {
-        Ok(s) => {
-            println!("Listening on http:/{}/", conf);
-            s
-        },
-        Err(e) => return Err(
-            format!("`Server::http(...)` failed with {:?}!", e)
-            ),
+    // create server
+    // either listen on IPv6 localhost, or IPv4 localhost
+    let server = if ipv6 {
+        let socket = SocketAddrV6::new(
+            Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1),
+            port as u16,
+            0,
+            0
+        );
+
+        match Server::http(&socket) {
+            Ok(s) => {
+                println!("Listening on http:/{:?}/", socket);
+                s
+            },
+            Err(e) => return Err(
+                format!("`Server::http(...)` failed with {:?}", e)
+                ),
+        }
+    } else {
+        let conf = format!("0.0.0.0:{}", port);
+        
+        match Server::http(&conf) {
+            Ok(s) => {
+                println!("Listening on http:/{}/", conf);
+                s
+            },
+            Err(e) => return Err(
+                format!("`Server::http(...)` failed with {:?}!", e)
+                ),
+        }
     };
 
     if threads < 2 {
@@ -234,8 +271,14 @@ fn respond_dir(rq: Request) -> Result<(), io::Error> {
                 "Content-Type".as_bytes(),
                 "text/html".as_bytes())
                 .unwrap();
+            let response = Response::new(
+                StatusCode(200),
+                vec![header],
+                listing.as_bytes(),
+                Some(listing.len()),
+                None);
 
-            rq.respond(Response::from_string(listing).with_header(header))
+            rq.respond(response)
         },
         Err(_) => {
             // println!("{:?}", e);
