@@ -1,0 +1,53 @@
+use clap::{App, Arg};
+
+
+pub fn build_cli() -> App<'static, 'static> {
+    App::new("brownhttpd")
+        .version("0.1.0")
+        .author("Tronje Krabbe <hi@tron.je>")
+        .about("Simple http server")
+        .arg(Arg::with_name("PATH")
+             .help("Directory to serve, defaults to current directory.")
+             .required(false)
+             .index(1))
+        .arg(Arg::with_name("port")
+             .short("p")
+             .long("port")
+             .takes_value(true)
+             .value_name("PORT")
+             .help("Set the port to listen on, defaults to 7878."))
+        .arg(Arg::with_name("ipv6")
+             .long("ipv6")
+             .takes_value(false)
+             .help("Use IPv6 address"))
+        .arg(Arg::with_name("chroot")
+             .long("chroot")
+             .takes_value(false)
+             .help("Chroot to supplied directory for added security."))
+        .arg(Arg::with_name("daemon")
+             .short("d")
+             .long("daemon")
+             .takes_value(false)
+             .help("Detach from terminal and run in background."))
+        .arg(Arg::with_name("index")
+             .short("i")
+             .long("index")
+             .takes_value(true)
+             .value_name("FILE")
+             .help("Default file to serve when a directory is requested, \
+                   defaults to 'index.html'"))
+        .arg(Arg::with_name("threads")
+             .short("t")
+             .long("threads")
+             .takes_value(true)
+             .help("Number of threads to work with. Default 1."))
+        .arg(Arg::with_name("gen_completions")
+             .long("gen-completions")
+             .required(false)
+             .takes_value(true)
+             .value_name("SHELL")
+             .help(
+                 "Generate completions for SHELL to stdout. \
+                  All other options are ignored and nothing else is done."
+                  ))
+}
