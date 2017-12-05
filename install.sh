@@ -6,7 +6,7 @@ cargo build --release
 
 if [ $? -ne 0 ]; then
     echo "Build failed! :("
-    return 1
+    exit 1
 else
     echo "Done!"
     echo "Copying binary to ~/.cargo/bin..."
@@ -20,5 +20,5 @@ else
     brownhttpd --gen-completions zsh > ~/.zsh-completions/_brownhttpd
 
     echo "Done!"
-    return 0
+    exit 0
 fi
