@@ -13,7 +13,7 @@ use std::ffi::CString;
 use std::fs::{self, File};
 use std::io;
 use std::net::{Ipv6Addr, SocketAddrV6};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::str;
 use std::sync::Arc;
@@ -76,18 +76,28 @@ fn main() {
         },
     };
 
-    let dir = env::current_dir().expect("Couldn't read curent directory!");
     let path = {
         if matches.is_present("PATH") {
-            Path::new(matches.value_of("PATH").unwrap())
+            PathBuf::from(matches.value_of("PATH").unwrap())
         } else {
-            Path::new(dir.to_str().unwrap())
+            env::current_dir().expect("Couldn't read curent directory!")
         }
     };
 
+    let index = matches.value_of("index").unwrap_or("index.html");
+    let index = index.to_owned();
+
     let chroot = matches.is_present("chroot");
 
-    match run(path, port, ipv6, chroot, daemon, threads) {
+    match run(
+        path.as_path(),
+        port,
+        ipv6,
+        chroot,
+        daemon,
+        threads,
+        index
+    ) {
         Ok(_) => process::exit(0),
         Err(e) => {
             println!("{}", e);
@@ -97,9 +107,15 @@ fn main() {
 }
 
 
-fn run(path: &Path, port: u32, ipv6: bool, chroot: bool, daemonize: bool, threads: usize)
-    -> Result<(), String>
-{
+fn run(
+    path: &Path,
+    port: u32,
+    ipv6: bool,
+    chroot: bool,
+    daemonize: bool,
+    threads: usize,
+    index: String
+) -> Result<(), String> {
     if daemonize {
         println!("Forking to background...");
         let status = Daemonize::new().start();
@@ -170,7 +186,7 @@ fn run(path: &Path, port: u32, ipv6: bool, chroot: bool, daemonize: bool, thread
 
     if threads < 2 {
         for request in server.incoming_requests() {
-            match handle_request(request) {
+            match handle_request(request, index.as_str()) {
                 Ok(_) => {},
                 Err(e) => {
                     return Err(
@@ -181,14 +197,16 @@ fn run(path: &Path, port: u32, ipv6: bool, chroot: bool, daemonize: bool, thread
         }
     } else {
         let server = Arc::new(server);
+        let index = Arc::new(index);
         let mut guards = Vec::with_capacity(threads);
 
         for _ in 0..threads {
             let server = server.clone();
+            let index = index.clone();
 
             let guard = thread::spawn(move || {
                 for request in server.incoming_requests() {
-                    handle_request(request).unwrap();
+                    handle_request(request, index.as_str()).unwrap();
                 }
             });
 
@@ -204,14 +222,14 @@ fn run(path: &Path, port: u32, ipv6: bool, chroot: bool, daemonize: bool, thread
 }
 
 
-fn handle_request(rq: Request) -> Result<(), io::Error> {
+fn handle_request(rq: Request, index: &str) -> Result<(), io::Error> {
     let url = str::replace(rq.url(), "%20", " ");
     print!("{} '{}'", rq.method().as_str().to_uppercase(), &url);
 
     match fs::metadata(&(".".to_owned() + &url)) {
         Ok(meta) => {
             if meta.is_dir() {
-                respond_dir(rq)
+                respond_dir(rq, index)
             } else if meta.is_file() {
                 respond_file(rq)
             } else {
@@ -239,27 +257,37 @@ fn respond_file(rq: Request) -> Result<(), io::Error> {
 }
 
 
-fn respond_dir(rq: Request) -> Result<(), io::Error> {
+fn respond_dir(rq: Request, index: &str) -> Result<(), io::Error> {
     let url = str::replace(rq.url(), "%20", " ");
     let dir = fs::read_dir(&(".".to_owned() + &url));
     let name = rq.url().to_owned();
 
     match dir {
         Ok(directory) => {
-            println!(" => 200");
-            let listing = generate_listing(name, directory);
-            let header = Header::from_bytes(
-                "Content-Type".as_bytes(),
-                "text/html".as_bytes())
-                .unwrap();
-            let response = Response::new(
-                StatusCode(200),
-                vec![header],
-                listing.as_bytes(),
-                Some(listing.len()),
-                None);
+            match File::open(format!(".{}{}", url, index)) {
+                Ok(f) => {
+                    // respond with index file
+                    println!(" => 200");
+                    rq.respond(Response::from_file(f))
+                },
+                Err(_) => {
+                    // respond with directory listing
+                    let listing = generate_listing(name, directory);
+                    let header = Header::from_bytes(
+                        "Content-Type".as_bytes(),
+                        "text/html".as_bytes())
+                        .unwrap();
+                    let response = Response::new(
+                        StatusCode(200),
+                        vec![header],
+                        listing.as_bytes(),
+                        Some(listing.len()),
+                        None);
 
-            rq.respond(response)
+                    println!(" => 200");
+                    rq.respond(response)
+                }
+            }
         },
         Err(_) => {
             // println!("{:?}", e);
